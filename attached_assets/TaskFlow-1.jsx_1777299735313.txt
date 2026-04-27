@@ -1,0 +1,619 @@
+import { useState, useEffect, useRef } from "react";
+
+const COLORS = {
+  bg: "#0a0a0f",
+  surface: "#13131a",
+  surfaceHover: "#1a1a24",
+  border: "#1e1e2e",
+  accent: "#6c63ff",
+  accentLight: "#8b84ff",
+  accentGlow: "rgba(108,99,255,0.15)",
+  green: "#22c55e",
+  yellow: "#f59e0b",
+  red: "#ef4444",
+  blue: "#3b82f6",
+  pink: "#ec4899",
+  text: "#e2e8f0",
+  textMuted: "#64748b",
+  textDim: "#94a3b8",
+};
+
+const PRIORITIES = {
+  high: { label: "High", color: COLORS.red, bg: "rgba(239,68,68,0.12)" },
+  medium: { label: "Medium", color: COLORS.yellow, bg: "rgba(245,158,11,0.12)" },
+  low: { label: "Low", color: COLORS.green, bg: "rgba(34,197,94,0.12)" },
+};
+
+const MEMBERS = [
+  { id: 1, name: "Alex K.", avatar: "AK", color: "#6c63ff" },
+  { id: 2, name: "Sara M.", avatar: "SM", color: "#ec4899" },
+  { id: 3, name: "John D.", avatar: "JD", color: "#3b82f6" },
+  { id: 4, name: "Priya R.", avatar: "PR", color: "#22c55e" },
+];
+
+const INITIAL_TASKS = {
+  todo: [
+    { id: 1, title: "Design database schema", desc: "ERD for users, tasks, teams", priority: "high", assignee: 1, due: "2025-05-10", comments: [{ user: "Sara M.", text: "Use PostgreSQL with UUID keys", time: "2h ago" }], tags: ["Backend", "DB"] },
+    { id: 2, title: "Setup CI/CD pipeline", desc: "GitHub Actions + Docker deploy", priority: "medium", assignee: 3, due: "2025-05-15", comments: [], tags: ["DevOps"] },
+    { id: 3, title: "OAuth integration", desc: "Google Auth + JWT refresh tokens", priority: "high", assignee: 4, due: "2025-05-08", comments: [], tags: ["Auth", "Backend"] },
+  ],
+  inprogress: [
+    { id: 4, title: "Kanban board UI", desc: "Drag-and-drop task columns", priority: "high", assignee: 2, due: "2025-05-07", comments: [{ user: "Alex K.", text: "Use dnd-kit for drag support", time: "1h ago" }], tags: ["Frontend"] },
+    { id: 5, title: "Real-time notifications", desc: "Socket.io push events", priority: "medium", assignee: 1, due: "2025-05-12", comments: [], tags: ["Backend", "Socket"] },
+  ],
+  review: [
+    { id: 6, title: "User registration API", desc: "POST /auth/register with bcrypt", priority: "low", assignee: 3, due: "2025-05-05", comments: [{ user: "Priya R.", text: "Looks good, just add rate limiting", time: "30m ago" }], tags: ["Backend", "Auth"] },
+  ],
+  done: [
+    { id: 7, title: "Project scaffolding", desc: "Monorepo with frontend + backend", priority: "low", assignee: 2, due: "2025-04-28", comments: [], tags: ["Setup"] },
+    { id: 8, title: "Docker Compose setup", desc: "Node + Postgres + Redis services", priority: "medium", assignee: 4, due: "2025-04-30", comments: [], tags: ["DevOps"] },
+  ],
+};
+
+const COLUMNS = [
+  { id: "todo", label: "To Do", icon: "○", color: COLORS.textMuted },
+  { id: "inprogress", label: "In Progress", icon: "◑", color: COLORS.blue },
+  { id: "review", label: "Review", icon: "◕", color: COLORS.yellow },
+  { id: "done", label: "Done", icon: "●", color: COLORS.green },
+];
+
+const css = `
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0a0a0f; font-family: 'DM Sans', sans-serif; }
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #1e1e2e; border-radius: 4px; }
+
+  .app { display: flex; height: 100vh; overflow: hidden; color: #e2e8f0; }
+
+  /* SIDEBAR */
+  .sidebar { width: 220px; background: #0d0d14; border-right: 1px solid #1e1e2e; display: flex; flex-direction: column; padding: 0; flex-shrink: 0; }
+  .logo { padding: 22px 20px 18px; border-bottom: 1px solid #1e1e2e; }
+  .logo-text { font-family: 'Syne', sans-serif; font-size: 20px; font-weight: 800; background: linear-gradient(135deg, #6c63ff, #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -0.5px; }
+  .logo-sub { font-size: 10px; color: #64748b; letter-spacing: 2px; text-transform: uppercase; margin-top: 2px; }
+  .nav { padding: 14px 10px; flex: 1; }
+  .nav-section { font-size: 9px; letter-spacing: 2px; color: #64748b; text-transform: uppercase; padding: 10px 10px 6px; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13.5px; color: #94a3b8; transition: all 0.15s; margin-bottom: 2px; }
+  .nav-item:hover { background: #1a1a24; color: #e2e8f0; }
+  .nav-item.active { background: rgba(108,99,255,0.15); color: #8b84ff; }
+  .nav-item .icon { font-size: 15px; width: 18px; text-align: center; }
+  .nav-badge { margin-left: auto; background: #6c63ff; color: white; font-size: 10px; padding: 1px 6px; border-radius: 20px; }
+
+  .team-section { padding: 14px 14px 20px; border-top: 1px solid #1e1e2e; }
+  .team-label { font-size: 9px; letter-spacing: 2px; color: #64748b; text-transform: uppercase; margin-bottom: 10px; }
+  .team-member { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 7px; cursor: pointer; transition: background 0.15s; }
+  .team-member:hover { background: #1a1a24; }
+  .avatar { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; flex-shrink: 0; }
+  .member-name { font-size: 12.5px; color: #94a3b8; }
+  .online-dot { width: 6px; height: 6px; background: #22c55e; border-radius: 50%; margin-left: auto; }
+
+  /* MAIN */
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* HEADER */
+  .header { padding: 18px 28px; border-bottom: 1px solid #1e1e2e; display: flex; align-items: center; gap: 16px; background: #0a0a0f; flex-shrink: 0; }
+  .header-title { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 700; color: #e2e8f0; flex: 1; }
+  .header-title span { color: #6c63ff; }
+  .search-box { display: flex; align-items: center; gap: 8px; background: #13131a; border: 1px solid #1e1e2e; border-radius: 8px; padding: 7px 12px; width: 200px; transition: border 0.15s; }
+  .search-box:focus-within { border-color: #6c63ff; }
+  .search-box input { background: none; border: none; outline: none; color: #e2e8f0; font-size: 13px; width: 100%; }
+  .search-box input::placeholder { color: #64748b; }
+  .btn { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; border: none; transition: all 0.15s; }
+  .btn-primary { background: #6c63ff; color: white; }
+  .btn-primary:hover { background: #7c74ff; box-shadow: 0 0 20px rgba(108,99,255,0.3); }
+  .btn-ghost { background: #13131a; color: #94a3b8; border: 1px solid #1e1e2e; }
+  .btn-ghost:hover { background: #1a1a24; color: #e2e8f0; }
+
+  /* STATS */
+  .stats-bar { display: flex; gap: 14px; padding: 14px 28px; border-bottom: 1px solid #1e1e2e; flex-shrink: 0; }
+  .stat-card { flex: 1; background: #13131a; border: 1px solid #1e1e2e; border-radius: 10px; padding: 12px 16px; transition: border-color 0.15s; }
+  .stat-card:hover { border-color: #6c63ff; }
+  .stat-num { font-family: 'Syne', sans-serif; font-size: 22px; font-weight: 700; }
+  .stat-label { font-size: 11px; color: #64748b; margin-top: 1px; }
+  .stat-change { font-size: 10px; margin-top: 4px; }
+  .stat-change.up { color: #22c55e; }
+  .stat-change.warn { color: #f59e0b; }
+
+  /* BOARD */
+  .board-wrap { flex: 1; overflow-x: auto; overflow-y: hidden; padding: 20px 28px; }
+  .board { display: flex; gap: 16px; height: 100%; min-width: max-content; }
+
+  .column { width: 280px; display: flex; flex-direction: column; background: #0d0d14; border: 1px solid #1e1e2e; border-radius: 12px; overflow: hidden; flex-shrink: 0; }
+  .col-header { padding: 14px 16px 10px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #1e1e2e; }
+  .col-icon { font-size: 14px; }
+  .col-title { font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 700; flex: 1; }
+  .col-count { background: #1e1e2e; color: #94a3b8; font-size: 11px; padding: 1px 7px; border-radius: 20px; }
+  .col-body { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+
+  /* TASK CARD */
+  .task-card { background: #13131a; border: 1px solid #1e1e2e; border-radius: 10px; padding: 12px; cursor: pointer; transition: all 0.15s; position: relative; }
+  .task-card:hover { border-color: #6c63ff; transform: translateY(-1px); box-shadow: 0 4px 20px rgba(108,99,255,0.1); }
+  .task-card.dragging { opacity: 0.5; }
+  .task-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+  .task-title { font-size: 13px; font-weight: 500; color: #e2e8f0; line-height: 1.4; }
+  .task-desc { font-size: 11.5px; color: #64748b; margin-bottom: 10px; line-height: 1.5; }
+  .priority-badge { font-size: 9px; font-weight: 600; padding: 2px 7px; border-radius: 4px; letter-spacing: 0.5px; text-transform: uppercase; flex-shrink: 0; }
+  .task-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+  .tag { font-size: 9.5px; background: rgba(108,99,255,0.1); color: #8b84ff; padding: 2px 7px; border-radius: 4px; letter-spacing: 0.3px; }
+  .task-footer { display: flex; align-items: center; gap: 8px; }
+  .task-avatar { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; }
+  .task-due { font-size: 10.5px; color: #64748b; margin-left: auto; }
+  .task-due.overdue { color: #ef4444; }
+  .comment-count { display: flex; align-items: center; gap: 3px; font-size: 10.5px; color: #64748b; }
+  .drop-zone { border: 2px dashed #1e1e2e; border-radius: 10px; height: 60px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #64748b; transition: all 0.15s; }
+  .drop-zone.active { border-color: #6c63ff; background: rgba(108,99,255,0.05); color: #6c63ff; }
+
+  /* MODAL */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; animation: fadeIn 0.15s ease; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  .modal { background: #13131a; border: 1px solid #1e1e2e; border-radius: 16px; width: 100%; max-width: 520px; max-height: 85vh; overflow-y: auto; animation: slideUp 0.2s ease; }
+  @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .modal-header { padding: 20px 24px 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .modal-title { font-family: 'Syne', sans-serif; font-size: 17px; font-weight: 700; }
+  .modal-close { background: #1e1e2e; border: none; color: #94a3b8; width: 28px; height: 28px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .modal-close:hover { background: #2a2a3e; color: #e2e8f0; }
+  .modal-body { padding: 16px 24px 24px; }
+  .modal-section { margin-bottom: 16px; }
+  .modal-label { font-size: 10.5px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+  .modal-input { width: 100%; background: #0d0d14; border: 1px solid #1e1e2e; border-radius: 8px; padding: 9px 12px; color: #e2e8f0; font-size: 13px; outline: none; transition: border 0.15s; font-family: 'DM Sans', sans-serif; }
+  .modal-input:focus { border-color: #6c63ff; }
+  textarea.modal-input { resize: vertical; min-height: 72px; }
+  .modal-row { display: flex; gap: 12px; }
+  .modal-row > * { flex: 1; }
+  .select-input { appearance: none; cursor: pointer; }
+
+  .comments-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+  .comment { background: #0d0d14; border-radius: 8px; padding: 10px 12px; }
+  .comment-header { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .comment-author { font-size: 11px; font-weight: 600; color: #8b84ff; }
+  .comment-time { font-size: 10px; color: #64748b; margin-left: auto; }
+  .comment-text { font-size: 12.5px; color: #94a3b8; }
+  .comment-input-row { display: flex; gap: 8px; }
+  .comment-input { flex: 1; background: #0d0d14; border: 1px solid #1e1e2e; border-radius: 8px; padding: 8px 12px; color: #e2e8f0; font-size: 12.5px; outline: none; font-family: 'DM Sans', sans-serif; }
+  .comment-input:focus { border-color: #6c63ff; }
+  .btn-sm { padding: 7px 12px; font-size: 12px; }
+
+  /* ADD TASK MODAL */
+  .new-task-form { display: flex; flex-direction: column; gap: 14px; }
+
+  /* NOTIFICATIONS */
+  .notif-panel { position: fixed; top: 60px; right: 20px; width: 300px; background: #13131a; border: 1px solid #1e1e2e; border-radius: 12px; z-index: 500; padding: 16px; animation: slideDown 0.2s ease; }
+  @keyframes slideDown { from { transform: translateY(-10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .notif-title { font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 700; margin-bottom: 12px; }
+  .notif-item { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid #1a1a24; }
+  .notif-item:last-child { border-bottom: none; }
+  .notif-dot { width: 8px; height: 8px; border-radius: 50%; background: #6c63ff; flex-shrink: 0; margin-top: 4px; }
+  .notif-text { font-size: 12px; color: #94a3b8; line-height: 1.5; }
+  .notif-time { font-size: 10px; color: #64748b; margin-top: 2px; }
+
+  select option { background: #13131a; }
+`;
+
+const styleEl = document.createElement("style");
+styleEl.textContent = css;
+document.head.appendChild(styleEl);
+
+function Avatar({ member, size = 26 }) {
+  return (
+    <div className="avatar" style={{ width: size, height: size, background: member.color + "33", color: member.color, fontSize: size * 0.35 }}>
+      {member.avatar}
+    </div>
+  );
+}
+
+function PriorityBadge({ priority }) {
+  const p = PRIORITIES[priority];
+  return <span className="priority-badge" style={{ color: p.color, background: p.bg }}>{p.label}</span>;
+}
+
+function TaskCard({ task, onClick, onDragStart, onDragEnd }) {
+  const member = MEMBERS.find(m => m.id === task.assignee);
+  const isOverdue = new Date(task.due) < new Date() && task.due;
+  return (
+    <div
+      className="task-card"
+      onClick={() => onClick(task)}
+      draggable
+      onDragStart={e => { e.dataTransfer.setData("taskId", task.id); onDragStart?.(); }}
+      onDragEnd={onDragEnd}
+    >
+      <div className="task-header">
+        <div className="task-title">{task.title}</div>
+        <PriorityBadge priority={task.priority} />
+      </div>
+      <div className="task-desc">{task.desc}</div>
+      {task.tags.length > 0 && (
+        <div className="task-tags">
+          {task.tags.map(t => <span key={t} className="tag">{t}</span>)}
+        </div>
+      )}
+      <div className="task-footer">
+        {member && <Avatar member={member} size={22} />}
+        {task.comments.length > 0 && (
+          <div className="comment-count">💬 {task.comments.length}</div>
+        )}
+        {task.due && (
+          <div className={`task-due ${isOverdue ? "overdue" : ""}`}>
+            {isOverdue ? "⚠ " : ""}{task.due}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Column({ col, tasks, onTaskClick, onDrop }) {
+  const [dragOver, setDragOver] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  return (
+    <div className="column">
+      <div className="col-header">
+        <span className="col-icon" style={{ color: col.color }}>{col.icon}</span>
+        <span className="col-title">{col.label}</span>
+        <span className="col-count">{tasks.length}</span>
+      </div>
+      <div
+        className="col-body"
+        onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={e => { e.preventDefault(); setDragOver(false); const id = parseInt(e.dataTransfer.getData("taskId")); onDrop(id, col.id); }}
+      >
+        {tasks.map(t => (
+          <TaskCard key={t.id} task={t} onClick={onTaskClick}
+            onDragStart={() => setDragging(true)}
+            onDragEnd={() => setDragging(false)}
+          />
+        ))}
+        <div className={`drop-zone ${dragOver ? "active" : ""}`}>
+          {dragOver ? "Drop here" : "+ Drop task"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TaskModal({ task, onClose, onAddComment, onMove }) {
+  const member = MEMBERS.find(m => m.id === task.assignee);
+  const [comment, setComment] = useState("");
+  const handleComment = () => {
+    if (!comment.trim()) return;
+    onAddComment(task.id, comment);
+    setComment("");
+  };
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <div className="modal-header">
+          <div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+              <PriorityBadge priority={task.priority} />
+              {task.tags.map(t => <span key={t} className="tag">{t}</span>)}
+            </div>
+            <div className="modal-title">{task.title}</div>
+          </div>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div className="modal-section">
+            <div className="modal-label">Description</div>
+            <div style={{ fontSize: 13.5, color: "#94a3b8", lineHeight: 1.6 }}>{task.desc}</div>
+          </div>
+          <div className="modal-row" style={{ marginBottom: 16 }}>
+            <div>
+              <div className="modal-label">Assignee</div>
+              {member && <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Avatar member={member} size={28} />
+                <span style={{ fontSize: 13 }}>{member.name}</span>
+              </div>}
+            </div>
+            <div>
+              <div className="modal-label">Due Date</div>
+              <div style={{ fontSize: 13, color: "#94a3b8" }}>{task.due || "No due date"}</div>
+            </div>
+            <div>
+              <div className="modal-label">Move To</div>
+              <select className="modal-input select-input" style={{ fontSize: 12, padding: "6px 10px" }}
+                onChange={e => { onMove(task.id, e.target.value); onClose(); }}>
+                <option value="">— Move —</option>
+                {COLUMNS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="modal-section">
+            <div className="modal-label">Comments ({task.comments.length})</div>
+            {task.comments.length > 0 && (
+              <div className="comments-list">
+                {task.comments.map((c, i) => (
+                  <div key={i} className="comment">
+                    <div className="comment-header">
+                      <span className="comment-author">{c.user}</span>
+                      <span className="comment-time">{c.time}</span>
+                    </div>
+                    <div className="comment-text">{c.text}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="comment-input-row">
+              <input className="comment-input" placeholder="Add a comment…" value={comment}
+                onChange={e => setComment(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleComment()} />
+              <button className="btn btn-primary btn-sm" onClick={handleComment}>Send</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AddTaskModal({ onClose, onAdd }) {
+  const [form, setForm] = useState({ title: "", desc: "", priority: "medium", assignee: 1, due: "", tags: "", col: "todo" });
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const handleAdd = () => {
+    if (!form.title.trim()) return;
+    onAdd({
+      id: Date.now(),
+      title: form.title,
+      desc: form.desc,
+      priority: form.priority,
+      assignee: parseInt(form.assignee),
+      due: form.due,
+      comments: [],
+      tags: form.tags.split(",").map(t => t.trim()).filter(Boolean),
+    }, form.col);
+    onClose();
+  };
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <div className="modal-header">
+          <div className="modal-title">New Task</div>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div className="new-task-form">
+            <div>
+              <div className="modal-label">Title *</div>
+              <input className="modal-input" placeholder="Task title…" value={form.title} onChange={e => set("title", e.target.value)} />
+            </div>
+            <div>
+              <div className="modal-label">Description</div>
+              <textarea className="modal-input" placeholder="What needs to be done…" value={form.desc} onChange={e => set("desc", e.target.value)} />
+            </div>
+            <div className="modal-row">
+              <div>
+                <div className="modal-label">Priority</div>
+                <select className="modal-input select-input" value={form.priority} onChange={e => set("priority", e.target.value)}>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+              </div>
+              <div>
+                <div className="modal-label">Column</div>
+                <select className="modal-input select-input" value={form.col} onChange={e => set("col", e.target.value)}>
+                  {COLUMNS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="modal-row">
+              <div>
+                <div className="modal-label">Assignee</div>
+                <select className="modal-input select-input" value={form.assignee} onChange={e => set("assignee", e.target.value)}>
+                  {MEMBERS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <div className="modal-label">Due Date</div>
+                <input className="modal-input" type="date" value={form.due} onChange={e => set("due", e.target.value)} />
+              </div>
+            </div>
+            <div>
+              <div className="modal-label">Tags (comma-separated)</div>
+              <input className="modal-input" placeholder="Frontend, Backend…" value={form.tags} onChange={e => set("tags", e.target.value)} />
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleAdd}>Create Task</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const NOTIFICATIONS = [
+  { text: "Sara M. commented on Kanban board UI", time: "5m ago" },
+  { text: "3 tasks are overdue — check In Progress", time: "1h ago" },
+  { text: "Priya R. moved OAuth integration to Review", time: "2h ago" },
+  { text: "New team member John D. joined the project", time: "1d ago" },
+];
+
+export default function App() {
+  const [tasks, setTasks] = useState(INITIAL_TASKS);
+  const [selectedTask, setSelectedTask] = useState(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [showNotif, setShowNotif] = useState(false);
+  const [search, setSearch] = useState("");
+  const [activeNav, setActiveNav] = useState("board");
+
+  const moveTask = (taskId, toCol) => {
+    setTasks(prev => {
+      const next = {};
+      let found = null;
+      for (const col in prev) {
+        next[col] = prev[col].filter(t => { if (t.id === taskId) { found = t; return false; } return true; });
+      }
+      if (found) next[toCol] = [...next[toCol], found];
+      return next;
+    });
+  };
+
+  const addComment = (taskId, text) => {
+    setTasks(prev => {
+      const next = {};
+      for (const col in prev) {
+        next[col] = prev[col].map(t => t.id === taskId
+          ? { ...t, comments: [...t.comments, { user: "You", text, time: "just now" }] }
+          : t);
+      }
+      return next;
+    });
+    if (selectedTask?.id === taskId) {
+      setSelectedTask(t => ({ ...t, comments: [...t.comments, { user: "You", text, time: "just now" }] }));
+    }
+  };
+
+  const addTask = (task, col) => {
+    setTasks(prev => ({ ...prev, [col]: [...prev[col], task] }));
+  };
+
+  const filteredTasks = (col) => {
+    if (!search) return tasks[col];
+    return tasks[col].filter(t => t.title.toLowerCase().includes(search.toLowerCase()) || t.desc.toLowerCase().includes(search.toLowerCase()));
+  };
+
+  const total = Object.values(tasks).flat().length;
+  const done = tasks.done.length;
+  const inprog = tasks.inprogress.length;
+  const overdue = Object.values(tasks).flat().filter(t => t.due && new Date(t.due) < new Date()).length;
+
+  return (
+    <div className="app">
+      {/* SIDEBAR */}
+      <div className="sidebar">
+        <div className="logo">
+          <div className="logo-text">TaskFlow</div>
+          <div className="logo-sub">Team Workspace</div>
+        </div>
+        <div className="nav">
+          <div className="nav-section">Workspace</div>
+          {[
+            { id: "board", icon: "⊞", label: "Board" },
+            { id: "tasks", icon: "✓", label: "My Tasks", badge: 3 },
+            { id: "calendar", icon: "◻", label: "Calendar" },
+            { id: "reports", icon: "↗", label: "Reports" },
+          ].map(n => (
+            <div key={n.id} className={`nav-item ${activeNav === n.id ? "active" : ""}`} onClick={() => setActiveNav(n.id)}>
+              <span className="icon">{n.icon}</span>
+              {n.label}
+              {n.badge && <span className="nav-badge">{n.badge}</span>}
+            </div>
+          ))}
+          <div className="nav-section" style={{ marginTop: 8 }}>Tools</div>
+          {[
+            { id: "notif", icon: "🔔", label: "Notifications", badge: 4 },
+            { id: "settings", icon: "⚙", label: "Settings" },
+          ].map(n => (
+            <div key={n.id} className="nav-item" onClick={() => n.id === "notif" && setShowNotif(v => !v)}>
+              <span className="icon">{n.icon}</span>
+              {n.label}
+              {n.badge && <span className="nav-badge">{n.badge}</span>}
+            </div>
+          ))}
+        </div>
+        <div className="team-section">
+          <div className="team-label">Team Online</div>
+          {MEMBERS.map(m => (
+            <div key={m.id} className="team-member">
+              <Avatar member={m} size={26} />
+              <span className="member-name">{m.name}</span>
+              <div className="online-dot" />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* MAIN */}
+      <div className="main">
+        <div className="header">
+          <div className="header-title">Collaborative Task <span>Management</span></div>
+          <div className="search-box">
+            <span style={{ color: "#64748b", fontSize: 13 }}>⌕</span>
+            <input placeholder="Search tasks…" value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+          <button className="btn btn-ghost" onClick={() => setShowNotif(v => !v)}>🔔 4</button>
+          <button className="btn btn-primary" onClick={() => setShowAdd(true)}>+ New Task</button>
+        </div>
+
+        {/* STATS */}
+        <div className="stats-bar">
+          <div className="stat-card">
+            <div className="stat-num" style={{ color: COLORS.accentLight }}>{total}</div>
+            <div className="stat-label">Total Tasks</div>
+            <div className="stat-change up">↑ +2 this week</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-num" style={{ color: COLORS.blue }}>{inprog}</div>
+            <div className="stat-label">In Progress</div>
+            <div className="stat-change up">Active sprints</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-num" style={{ color: COLORS.green }}>{done}</div>
+            <div className="stat-label">Completed</div>
+            <div className="stat-change up">↑ {Math.round((done / total) * 100)}% done</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-num" style={{ color: overdue > 0 ? COLORS.red : COLORS.green }}>{overdue}</div>
+            <div className="stat-label">Overdue</div>
+            <div className={`stat-change ${overdue > 0 ? "warn" : "up"}`}>{overdue > 0 ? "⚠ Needs attention" : "All on track"}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-num" style={{ color: COLORS.pink }}>{MEMBERS.length}</div>
+            <div className="stat-label">Team Members</div>
+            <div className="stat-change up">All online</div>
+          </div>
+        </div>
+
+        {/* BOARD */}
+        <div className="board-wrap">
+          <div className="board">
+            {COLUMNS.map(col => (
+              <Column
+                key={col.id}
+                col={col}
+                tasks={filteredTasks(col.id)}
+                onTaskClick={t => setSelectedTask(t)}
+                onDrop={moveTask}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* NOTIFICATIONS */}
+      {showNotif && (
+        <div className="notif-panel">
+          <div className="notif-title">🔔 Notifications</div>
+          {NOTIFICATIONS.map((n, i) => (
+            <div key={i} className="notif-item">
+              <div className="notif-dot" />
+              <div>
+                <div className="notif-text">{n.text}</div>
+                <div className="notif-time">{n.time}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* TASK DETAIL MODAL */}
+      {selectedTask && (
+        <TaskModal
+          task={selectedTask}
+          onClose={() => setSelectedTask(null)}
+          onAddComment={addComment}
+          onMove={moveTask}
+        />
+      )}
+
+      {/* ADD TASK MODAL */}
+      {showAdd && (
+        <AddTaskModal onClose={() => setShowAdd(false)} onAdd={addTask} />
+      )}
+    </div>
+  );
+}
